@@ -1,26 +1,25 @@
-# Artist's Way Journey - Smart Contract Security Review
-
-| | |
-|---|---|
-| **Prepared by** | Taylor Haun |
-| **Date** | December 5, 2024 |
-| **Version** | 1.0 |
+---
+title: "Artist's Way Journey"
+subtitle: "Smart Contract Security Review"
+author: "Taylor Haun"
+date: "December 5, 2024"
+titlepage: true
+titlepage-color: "1a1a2e"
+titlepage-text-color: "FFFFFF"
+titlepage-rule-color: "FFFFFF"
+titlepage-rule-height: 2
+book: true
+classoption: oneside
+code-block-font-size: \scriptsize
+---
 
 # Table of Contents
 - [Protocol Summary](#protocol-summary)
 - [Disclaimer](#disclaimer)
 - [Risk Classification](#risk-classification)
 - [Audit Details](#audit-details)
-  - [Scope](#scope)
-  - [Roles](#roles)
 - [Executive Summary](#executive-summary)
-  - [Issues Found](#issues-found)
 - [Findings](#findings)
-  - [High Severity](#high-severity)
-  - [Medium Severity](#medium-severity)
-  - [Low Severity](#low-severity)
-  - [Informational](#informational)
-  - [Gas Optimizations](#gas-optimizations)
 - [Proof of Concept Results](#proof-of-concept-results)
 
 # Protocol Summary
@@ -33,6 +32,7 @@ Artist's Way Journey is an on-chain tracking system for Julia Cameron's 12-week 
 - **TokenIds.sol** - Library for token ID management
 
 **Token Reward Structure:**
+
 | Activity | BASIC Tier | VERIFIED Tier (10x) |
 |----------|-----------|---------------------|
 | Morning Page | 10 tokens | 100 tokens |
@@ -55,24 +55,26 @@ The security researcher makes all effort to find as many vulnerabilities in the 
 | Likelihood | Medium | H/M    | M      | M/L |
 |            | Low    | M      | M/L    | L   |
 
-We use the [CodeHawks](https://docs.codehawks.com/hawks-auditors/how-to-evaluate-a-finding-severity) severity matrix to determine severity.
+We use the CodeHawks severity matrix to determine severity.
 
 # Audit Details
 
-**Repository**: artist-way-v5.1
-**Commit Hash**: 1836a9b
-**Review Period**: December 5, 2024
-**Methods**: Manual code review, Foundry testing
+| | |
+|---|---|
+| **Repository** | artist-way-v5.1 |
+| **Commit Hash** | 1836a9b |
+| **Review Period** | December 5, 2024 |
+| **Methods** | Manual code review, Foundry testing |
 
 ## Scope
 
 | Contract | SLOC | Purpose |
 |----------|------|---------|
-| `contracts/ArtistWayJourney.sol` | ~650 | Main ERC-1155 journey tracking |
-| `contracts/ArtistWayToken.sol` | ~85 | ERC-20 reward token |
-| `contracts/verifiers/DummyVerifier.sol` | ~50 | Placeholder verifier |
-| `contracts/interfaces/IVerifier.sol` | ~45 | Verifier interface |
-| `contracts/libraries/TokenIds.sol` | ~200 | Token ID management |
+| `ArtistWayJourney.sol` | ~650 | Main ERC-1155 journey tracking |
+| `ArtistWayToken.sol` | ~85 | ERC-20 reward token |
+| `DummyVerifier.sol` | ~50 | Placeholder verifier |
+| `IVerifier.sol` | ~45 | Verifier interface |
+| `TokenIds.sol` | ~200 | Token ID management |
 
 ## Roles
 
@@ -87,6 +89,7 @@ We use the [CodeHawks](https://docs.codehawks.com/hawks-auditors/how-to-evaluate
 This security review identified **critical token farming vulnerabilities** in the Artist's Way Journey contracts. The most severe issue allows users to **complete an entire 12-week journey and earn all rewards in a single transaction** by exploiting the lack of timestamp validation.
 
 All findings were verified with Foundry proof-of-concept tests demonstrating:
+
 - **20,950 tokens** farmed in a single transaction
 - **60-day streak** achieved instantly
 - **7x token advantage** over legitimate users
@@ -104,7 +107,7 @@ The core vulnerability: `unixDay` and `timestamp` parameters are user-supplied w
 | Gas | 2 |
 | **Total** | **15** |
 
----
+\newpage
 
 # Findings
 
@@ -117,7 +120,6 @@ The core vulnerability: `unixDay` and `timestamp` parameters are user-supplied w
 The `recordMorningPage()` function accepts `unixDay` as a user-supplied parameter without validating it corresponds to the current day:
 
 ```solidity
-// ArtistWayJourney.sol:267-277
 function recordMorningPage(
     uint256 unixDay,        // @audit User-controlled, no validation
     uint256 timestamp,      // @audit User-controlled, no validation
@@ -126,7 +128,6 @@ function recordMorningPage(
 ) external {
     uint256 journeyId = currentJourneyId[msg.sender];
     if (journeyId == 0) revert NoActiveJourney();
-    if (journeyCompleted[msg.sender][journeyId]) revert("Journey already complete");
     if (unixDay == 0) revert InvalidUnixDay();
     if (morningPagesLog[msg.sender][journeyId][unixDay]) revert AlreadyLoggedToday();
     // @audit No check that unixDay == block.timestamp / 1 days
@@ -135,36 +136,6 @@ function recordMorningPage(
 **Impact**
 
 An attacker can call `recordMorningPage()` 84 times with sequential days and `recordArtistDate()` 12 times in a single transaction, earning all tokens and achievements instantly.
-
-**Proof of Concept**
-
-```solidity
-function test_ExploitFarmEntireJourneyInOneTx() public {
-    vm.startPrank(attacker);
-    journey.startNewJourney();
-
-    uint256 baseDay = block.timestamp / 1 days;
-
-    // Farm 84 morning pages in one transaction
-    for (uint256 i = 0; i < 84; i++) {
-        journey.recordMorningPage(
-            baseDay + i,
-            block.timestamp,
-            keccak256(abi.encode("page", i)),
-            hex"01"
-        );
-    }
-
-    // Farm 12 artist dates
-    for (uint256 week = 1; week <= 12; week++) {
-        journey.recordArtistDate(week, block.timestamp, bytes32(0), hex"01");
-    }
-    vm.stopPrank();
-
-    uint256 tokensEarned = token.balanceOf(attacker);
-    // Result: 20,950 tokens in one transaction
-}
-```
 
 **Test Output**
 ```
@@ -183,11 +154,8 @@ function recordMorningPage(...) external {
     if (unixDay != today) revert InvalidUnixDay();
     if (timestamp > block.timestamp) revert InvalidTimestamp();
     if (timestamp < block.timestamp - 1 days) revert InvalidTimestamp();
-    // ...
 }
 ```
-
----
 
 ### [H-2] DummyVerifier Grants VERIFIED Tier (10x Rewards) for Any Non-Empty Proof
 
@@ -196,7 +164,6 @@ function recordMorningPage(...) external {
 The `DummyVerifier` grants VERIFIED tier for any non-empty proof:
 
 ```solidity
-// DummyVerifier.sol:55-73
 function verifyWithTier(bytes calldata proof)
     external pure override
     returns (bool valid, VerificationTier tier)
@@ -213,21 +180,13 @@ function verifyWithTier(bytes calldata proof)
 **Impact**
 
 Any user claims 10x rewards by passing `hex"01"` as proof:
+
 - Morning pages: 10 → 100 tokens
 - Artist dates: 50 → 500 tokens
-
-**Test Output**
-```
-[PASS] test_ExploitVerifiedTierForFree()
-  First entry reward: 410 tokens (includes achievements)
-  Second entry reward: 100 tokens
-  Core exploit: ANY non-empty proof = VERIFIED tier
-```
 
 **Recommended Mitigation**
 
 ```solidity
-// Always return BASIC tier until real ZK verifier is deployed
 function verifyWithTier(bytes calldata proof)
     external pure override
     returns (bool valid, VerificationTier tier)
@@ -237,36 +196,11 @@ function verifyWithTier(bytes calldata proof)
 }
 ```
 
----
-
 ### [H-3] Streak Manipulation via Out-of-Order Day Submission
 
 **Description**
 
-The streak calculation only checks if the gap between submissions equals 1:
-
-```solidity
-function _updateStreak(address user, uint256 journeyId, uint256 currentDay)
-    internal returns (uint256)
-{
-    uint256 lastDay = journeyLastCheckInDay[user][journeyId];
-    if (lastDay == 0) {
-        journeyStreak[user][journeyId] = 1;
-    } else {
-        uint256 gap = currentDay - lastDay;
-        if (gap == 1) {
-            journeyStreak[user][journeyId]++;
-        } else {
-            journeyStreak[user][journeyId] = 1;
-        }
-    }
-    // ...
-}
-```
-
-**Impact**
-
-Submitting days 1-60 sequentially achieves all streak badges instantly.
+The streak calculation only checks if the gap between submissions equals 1. Submitting days 1-60 sequentially achieves all streak badges instantly.
 
 **Test Output**
 ```
@@ -283,68 +217,22 @@ Submitting days 1-60 sequentially achieves all streak badges instantly.
 function _updateStreak(...) internal returns (uint256) {
     uint256 today = block.timestamp / 1 days;
     require(currentDay == today, "Can only log today");
-    // ...
 }
 ```
-
----
 
 ## Medium Severity
 
 ### [M-1] Global Content Hash Allows Front-Running to Deny VERIFIED Tier
 
-**Description**
+Content hashes are stored globally, allowing attackers to front-run and steal another user's hash, downgrading them to BASIC tier.
 
-Content hashes are stored globally:
-
-```solidity
-mapping(bytes32 => bool) public globalUsedHashes;
-
-if (globalUsedHashes[contentHash]) {
-    tier = VerificationTier.BASIC;
-} else {
-    globalUsedHashes[contentHash] = true;
-}
-```
-
-**Impact**
-
-Attacker monitors mempool, front-runs with victim's `contentHash`, victim gets downgraded to BASIC tier.
-
-**Recommended Mitigation**
-
-```solidity
-bytes32 userHash = keccak256(abi.encodePacked(msg.sender, contentHash));
-```
-
----
+**Recommended Mitigation**: Include user address in hash: `keccak256(abi.encodePacked(msg.sender, contentHash))`
 
 ### [M-2] No Validation That artistToken Minter Is Set Correctly
 
-**Description**
-
-The contract calls `artistToken.mint()` without verifying the minter is configured.
-
-**Impact**
-
 If deployment doesn't call `artistToken.setMinter()`, all recording functions revert permanently.
 
-**Recommended Mitigation**
-
-Add constructor validation or deployment checks.
-
----
-
 ### [M-3] Artist Date Can Be Recorded for Future Weeks
-
-**Description**
-
-```solidity
-if (week < 1 || week > 12) revert InvalidWeek();
-// @audit No check: week <= getCurrentWeek(user, journeyId)
-```
-
-**Impact**
 
 All 12 artist dates recordable immediately = 6,000 tokens (VERIFIED).
 
@@ -356,89 +244,37 @@ All 12 artist dates recordable immediately = 6,000 tokens (VERIFIED).
   Tokens earned: 2,150
 ```
 
-**Recommended Mitigation**
-
-```solidity
-uint256 currentWeek = getCurrentWeek(msg.sender, journeyId);
-if (week > currentWeek) revert InvalidWeek();
-```
-
----
-
 ### [M-4] External Call to Untrusted Verifier Before State Changes
 
-**Description**
-
-External verifier called before state modifications. Currently safe (view function), but risky if verifier is upgraded.
-
-**Recommended Mitigation**
-
-Add `ReentrancyGuard` or restructure to Checks-Effects-Interactions pattern.
-
----
+External verifier called before state modifications. Add `ReentrancyGuard` for safety.
 
 ## Low Severity
 
 ### [L-1] setVerifier Has No Zero Address Check
 
-```solidity
-function setVerifier(address newVerifier) external onlyOwner {
-    verifier = IVerifier(newVerifier);  // No zero check
-}
-```
-
-**Recommended Mitigation**: Add `require(newVerifier != address(0))`.
-
----
-
 ### [L-2] TokenIds Library Uses require() Instead of Custom Errors
 
-Inconsistent with main contract, higher gas costs.
-
----
-
 ### [L-3] Mixed Error Styles: Custom Errors vs revert() Strings
-
-```solidity
-if (journeyId == 0) revert NoActiveJourney();           // Custom error
-if (journeyCompleted[...]) revert("Journey already complete"); // String
-```
-
-**Recommended Mitigation**: Use custom errors consistently.
-
----
 
 ## Informational
 
 ### [I-1] Centralization Risk: Owner Can Record for Any User
 
-`recordMorningPageFor()` and `recordArtistDateFor()` allow owner to mint tokens for any address.
-
 ### [I-2] No Event for Streak Updates
 
-Streak changes don't emit events, complicating off-chain tracking.
-
 ### [I-3] isProductionReady() Not Used in Main Contract
-
-`DummyVerifier.isProductionReady()` returns false but is never checked.
-
----
 
 ## Gas Optimizations
 
 ### [G-1] _isWeekComplete() Performs Redundant Storage Reads
 
-Cache `journeyStartDates` when checking multiple weeks.
-
 ### [G-2] String Concatenation in Events Wastes Gas
 
-Emit week number as `uint256` instead of building strings.
-
----
+\newpage
 
 # Proof of Concept Results
 
-All vulnerabilities were verified with Foundry tests. Run with:
+All vulnerabilities were verified with Foundry tests:
 
 ```bash
 forge test --match-contract TokenFarmingExploit -vv
@@ -454,21 +290,22 @@ forge test --match-contract TokenFarmingExploit -vv
 | `test_CompareAttackerVsLegitimateUser` | PASS | 7x advantage over honest users |
 
 **Projected Maximum Damage**
-```
-Per journey:     ~17,000 tokens
-MAX_JOURNEYS:    490
-Single attacker: ~8,500,000 tokens
-```
 
----
+| Metric | Value |
+|--------|-------|
+| Per journey | ~17,000 tokens |
+| MAX_JOURNEYS | 490 |
+| Single attacker potential | ~8,500,000 tokens |
 
 # Appendix
 
 ## Tools Used
+
 - Manual code review
 - Foundry (forge test)
 
 ## Files Reviewed
+
 - `ArtistWayJourney.sol` (1079 lines)
 - `ArtistWayToken.sol` (136 lines)
 - `DummyVerifier.sol` (93 lines)
@@ -476,8 +313,5 @@ Single attacker: ~8,500,000 tokens
 - `TokenIds.sol` (305 lines)
 
 ## PoC Test File
+
 - `test/TokenFarmingExploit.t.sol`
-
----
-
-*Security Review by Taylor Haun - December 5, 2024*
